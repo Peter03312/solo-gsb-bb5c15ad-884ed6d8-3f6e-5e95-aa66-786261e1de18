@@ -268,6 +268,16 @@ function init(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_pieceimports_design ON piece_imports(target_design_id);
     CREATE INDEX IF NOT EXISTS idx_pieceimports_status ON piece_imports(status);
 
+    -- 草稿片号高水位：每张图纸一行，last_piece_no = 该图纸此前已分配过的最大片号。
+    -- 新片号只能在写事务内从此水位线领取并推进，删除拼片（含删光全部草稿）不回退，
+    -- 因此同图纸片号始终递增、永不复用；重启后仍成立。不同图纸各自独立计数。
+    -- 旧库首次启动时由 seedPieceSequences() 以“现存草稿 + 已发布快照”可查到的
+    -- 最大片号回填起点；无法追溯的历史删除记录不回补。
+    CREATE TABLE IF NOT EXISTS piece_sequences (
+      design_id     INTEGER PRIMARY KEY REFERENCES designs(id) ON DELETE CASCADE,
+      last_piece_no INTEGER NOT NULL CHECK (last_piece_no >= 0)
+    );
+
     -- 玻璃原片瑕疵隔离单（不可变）：一次操作选一种或多种已登记颜色，
     -- 对每种颜色提交正整数张数与非空原因，整单原子生效。
     -- action='hold' 隔离：只能划出当前“未预留（净）且未隔离”的实物（stock − 净预留 − 已隔离）；
@@ -321,6 +331,9 @@ function init(dbPath) {
   migrateLedgerQuarantineColumns();
   // 盘点项补“预览时隔离余额”基准列（旧草稿盘点单按 0 起算）。
   migrateStocktakeQuarantineColumn();
+
+  // 旧库升级：为每张图纸建立片号高水位，起点取现存草稿与已发布快照中的最大片号。
+  seedPieceSequences();
 
   return db;
 }
@@ -571,13 +584,83 @@ function getDb() {
   return db;
 }
 
+// ---------- 片号高水位 ----------
+
+// 一份发布快照中出现过的最大片号（快照不可变，JSON 结构异常时按 0 处理）。
+function maxPieceNoInSnapshot(snapshotJson) {
+  let max = 0;
+  try {
+    const snap = JSON.parse(snapshotJson);
+    for (const p of (Array.isArray(snap.pieces) ? snap.pieces : [])) {
+      const n = Number(p && p.pieceNo);
+      if (Number.isInteger(n) && n > max) max = n;
+    }
+  } catch { /* 损坏快照不影响其他图纸回填 */ }
+  return max;
+}
+
+// 旧库升级回填：为尚无水线行的图纸以“现存草稿 + 已发布快照”可查到的最大片号为起点。
+// 无法追溯的历史删除记录无需回补；全新库（piece_sequences 随建表语句产生）同样在此补行。
+function seedPieceSequences() {
+  const designs = db.prepare('SELECT id FROM designs ORDER BY id').all();
+  if (!designs.length) return;
+  const tx = db.transaction(() => {
+    const draftMax = db.prepare('SELECT COALESCE(MAX(piece_no), 0) AS n FROM pieces WHERE design_id = ?');
+    const pubs = db.prepare('SELECT snapshot FROM publications WHERE design_id = ?');
+    const upsert = db.prepare(
+      'INSERT INTO piece_sequences (design_id, last_piece_no) VALUES (?, ?) ON CONFLICT(design_id) DO NOTHING');
+    for (const { id } of designs) {
+      let max = draftMax.get(id).n;
+      for (const row of pubs.all(id)) {
+        const n = maxPieceNoInSnapshot(row.snapshot);
+        if (n > max) max = n;
+      }
+      upsert.run(id, max);
+    }
+  });
+  tx();
+}
+
+// 在已打开的写事务内领取连续片号：推进该图纸高水位并返回 [start, start+count)。
+// 手工单片与整批导入都走这里——任一写事务持有写锁期间其他写事务排队，
+// UNIQUE(design_id, piece_no) 是最后防线，因此两条写路径并发也不会撞号。
+// 行缺失（旧库异常状态）时按现存草稿与快照现场补线，水位只升不降。
+function allocatePieceNos(designId, count = 1) {
+  if (!Number.isInteger(count) || count <= 0) throw new Error('领取片号数量必须是正整数');
+  const d = getDb();
+  let row = d.prepare('SELECT last_piece_no FROM piece_sequences WHERE design_id = ?').get(designId);
+  if (!row) {
+    let max = d.prepare('SELECT COALESCE(MAX(piece_no), 0) AS n FROM pieces WHERE design_id = ?')
+      .get(designId).n;
+    for (const r of d.prepare('SELECT snapshot FROM publications WHERE design_id = ?').all(designId)) {
+      const n = maxPieceNoInSnapshot(r.snapshot);
+      if (n > max) max = n;
+    }
+    d.prepare('INSERT INTO piece_sequences (design_id, last_piece_no) VALUES (?, ?) ON CONFLICT(design_id) DO NOTHING')
+      .run(designId, max);
+    row = d.prepare('SELECT last_piece_no FROM piece_sequences WHERE design_id = ?').get(designId);
+  }
+  const start = row.last_piece_no + 1;
+  d.prepare('UPDATE piece_sequences SET last_piece_no = ? WHERE design_id = ?')
+    .run(row.last_piece_no + count, designId);
+  const nos = [];
+  for (let i = 0; i < count; i += 1) nos.push(start + i);
+  return nos;
+}
+
 // ---------- designs ----------
 
 function createDesign({ name, width, height }) {
-  const info = getDb()
-    .prepare('INSERT INTO designs (name, width_mm, height_mm) VALUES (?, ?, ?)')
-    .run(name, width, height);
-  return getDesign(info.lastInsertRowid);
+  const d = getDb();
+  const tx = d.transaction(() => {
+    const info = d.prepare('INSERT INTO designs (name, width_mm, height_mm) VALUES (?, ?, ?)')
+      .run(name, width, height);
+    // 新图纸片号从 1 起，独立计数
+    d.prepare('INSERT INTO piece_sequences (design_id, last_piece_no) VALUES (?, 0)')
+      .run(info.lastInsertRowid);
+    return info.lastInsertRowid;
+  });
+  return getDesign(tx());
 }
 
 function getDesign(id) {
@@ -619,20 +702,23 @@ function getPiece(designId, pieceId) {
   return row ? rowToPiece(row) : null;
 }
 
-function nextPieceNo(designId) {
-  const row = getDb()
-    .prepare('SELECT COALESCE(MAX(piece_no), 0) + 1 AS n FROM pieces WHERE design_id = ?')
-    .get(designId);
-  return row.n;
-}
+// 手工添加单片：在 BEGIN IMMEDIATE 写事务内领取片号并写入，
+// 与整批确认共用同一条只升不降的高水位，并发互不撞号。
+const addPieceTxn = (designId, color, polygonJson) => {
+  const d = getDb();
+  const [pieceNo] = allocatePieceNos(designId, 1);
+  const info = d
+    .prepare('INSERT INTO pieces (design_id, piece_no, color, polygon) VALUES (?, ?, ?, ?)')
+    .run(designId, pieceNo, color, polygonJson);
+  touchDesign(designId);
+  return info.lastInsertRowid;
+};
 
 function addPiece(designId, { color, polygon }) {
-  const pieceNo = nextPieceNo(designId);
-  const info = getDb()
-    .prepare('INSERT INTO pieces (design_id, piece_no, color, polygon) VALUES (?, ?, ?, ?)')
-    .run(designId, pieceNo, color, JSON.stringify(polygon));
-  touchDesign(designId);
-  return getPiece(designId, info.lastInsertRowid);
+  const d = getDb();
+  const run = d.transaction(addPieceTxn, { immediate: true });
+  const pieceId = run(designId, color, JSON.stringify(polygon));
+  return getPiece(designId, pieceId);
 }
 
 function updatePiece(designId, pieceId, { color, polygon }) {
@@ -649,16 +735,22 @@ function deletePiece(designId, pieceId) {
     .prepare('DELETE FROM pieces WHERE id = ? AND design_id = ?')
     .run(pieceId, designId);
   if (info.changes) touchDesign(designId);
+  // 注意：不回退 piece_sequences 水位——删除（含删光全部草稿）后再添加仍拿新片号
   return info.changes > 0;
 }
 
 function replaceAllPieces(designId, pieces) {
-  // 目前未使用；保留以便整单导入
-  const tx = getDb().transaction((rows) => {
-    getDb().prepare('DELETE FROM pieces WHERE design_id = ?').run(designId);
-    for (const pc of rows) addPiece(designId, pc);
-  });
-  tx(pieces);
+  // 目前未使用；保留以便整单导入。注意历史片号同样不得复用：
+  // 删光后重写也从高水位之后继续编号。
+  const d = getDb();
+  const tx = d.transaction(() => {
+    d.prepare('DELETE FROM pieces WHERE design_id = ?').run(designId);
+    const insert = d.prepare('INSERT INTO pieces (design_id, piece_no, color, polygon) VALUES (?, ?, ?, ?)');
+    const nos = allocatePieceNos(designId, pieces.length);
+    pieces.forEach((pc, i) => insert.run(designId, nos[i], pc.color, JSON.stringify(pc.polygon)));
+    touchDesign(designId);
+  }, { immediate: true });
+  tx();
 }
 
 function touchDesign(designId) {
@@ -2666,22 +2758,22 @@ function confirmPieceImport(id, fns = {}) {
       }
     }
 
-    // 整批插入：顺序沿用预览 items（即请求 pieceNos 顺序），编号依次递增
-    let nextNo = d.prepare('SELECT COALESCE(MAX(piece_no), 0) + 1 AS n FROM pieces WHERE design_id = ?')
-      .get(design.id).n;
+    // 整批插入：顺序沿用预览 items（即请求 pieceNos 顺序），在本写事务内领取连续新片号。
+    // 走到这里之前的一切失败都已 ROLLBACK，水线推进随之回滚——确认失败不消耗片号。
+    const pieceNos = allocatePieceNos(design.id, items.length);
     const insertStmt = d.prepare(
       'INSERT INTO pieces (design_id, piece_no, color, polygon) VALUES (?, ?, ?, ?)');
     const confirmedPieces = [];
-    for (const it of items) {
-      insertStmt.run(design.id, nextNo, it.color, JSON.stringify(it.polygon));
+    items.forEach((it, i) => {
+      const pieceNo = pieceNos[i];
+      insertStmt.run(design.id, pieceNo, it.color, JSON.stringify(it.polygon));
       confirmedPieces.push({
-        pieceNo: nextNo,
+        pieceNo,
         sourcePieceNo: it.sourcePieceNo,
         color: it.color,
         polygon: it.polygon,
       });
-      nextNo += 1;
-    }
+    });
     touchDesign(design.id);
     d.prepare(`UPDATE piece_imports
       SET status = 'confirmed', confirmed_at = datetime('now'), confirmed_pieces = ?
