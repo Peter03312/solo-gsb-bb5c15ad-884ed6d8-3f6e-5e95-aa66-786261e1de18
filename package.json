@@ -1,0 +1,18 @@
+{
+  "name": "stained-glass-studio",
+  "version": "1.0.0",
+  "description": "彩绘玻璃工作室网页拼片台：草稿编辑、覆盖校验、发布与铅条下料清单",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/geometry.test.js test/leaddiff.test.js test/cutting.test.js test/printsheet.test.js test/sheetnest.test.js test/plans.api.test.js test/diff.api.test.js test/print.api.test.js test/cutorders.api.test.js test/cutreplace.test.js test/comboorders.api.test.js test/stocktakes.api.test.js test/issues.api.test.js test/ledger.api.test.js test/quarantine.api.test.js test/importpieces.api.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2"
+  }
+}

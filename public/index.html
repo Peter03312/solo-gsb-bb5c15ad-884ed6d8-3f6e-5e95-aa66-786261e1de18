@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>彩绘玻璃拼片台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>🪟 彩绘玻璃拼片台</h1>
+    <nav class="tabs">
+      <button id="tabDraft" class="tab active">草稿编辑</button>
+      <button id="tabPublished" class="tab">已发布图纸</button>
+      <button id="tabReuse" class="tab">跨图复用</button>
+      <button id="tabDiff" class="tab">版本核对</button>
+      <button id="tabPrint" class="tab">分张打印</button>
+      <button id="tabProduction" class="tab">铅条生产</button>
+      <button id="tabCutting" class="tab">玻璃裁片</button>
+      <button id="tabCombo" class="tab">整套备料</button>
+      <button id="tabStocktake" class="tab">库存盘点</button>
+      <button id="tabIssue" class="tab">领料</button>
+      <button id="tabQuarantine" class="tab">瑕疵隔离</button>
+      <button id="tabLedger" class="tab">库存台账</button>
+    </nav>
+  </header>
+
+  <!-- ============ 草稿视图 ============ -->
+  <main id="viewDraft" class="view">
+    <aside class="panel">
+      <section>
+        <h2>图纸</h2>
+        <label>选择图纸
+          <select id="designSelect"></select>
+        </label>
+        <details>
+          <summary>新建图纸</summary>
+          <div class="form-row">
+            <label>名称<input id="newName" type="text" placeholder="未命名图纸" maxlength="80"></label>
+          </div>
+          <div class="form-row two">
+            <label>窗框宽 (mm)<input id="newWidth" type="number" min="1" step="1" value="300"></label>
+            <label>窗框高 (mm)<input id="newHeight" type="number" min="1" step="1" value="200"></label>
+          </div>
+          <button id="btnCreate" class="primary">新建</button>
+        </details>
+        <div id="designMeta" class="muted"></div>
+      </section>
+
+      <section id="editSection" hidden>
+        <h2>拼片编辑</h2>
+        <div class="hint">在画布上点击添加整数毫米顶点，双击或点击“闭合多边形”完成；也可直接输入坐标。</div>
+        <div class="form-row">
+          <label>颜色<input id="pieceColor" type="color" value="#4c9aff"></label>
+        </div>
+        <label>手工输入顶点（每行 <code>x,y</code>，整数毫米）
+          <textarea id="coordsInput" rows="4" placeholder="0,0&#10;120,0&#10;120,80"></textarea>
+        </label>
+        <div class="btn-row">
+          <button id="btnStart" class="primary">开始绘制新片</button>
+          <button id="btnFinish">闭合多边形</button>
+          <button id="btnUndo">撤销点</button>
+          <button id="btnCancel">取消</button>
+        </div>
+        <div id="editHint" class="hint"></div>
+      </section>
+
+      <section id="pieceListSection" hidden>
+        <h2>拼片列表 (<span id="pieceCount">0</span>)</h2>
+        <ul id="pieceList"></ul>
+      </section>
+
+      <section id="statusSection" hidden>
+        <h2>覆盖状态</h2>
+        <div id="coverageStatus"></div>
+        <div class="btn-row">
+          <button id="btnPublish" class="primary big">发布图纸</button>
+        </div>
+        <div id="publishResult"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="errorBanner" class="banner" hidden></div>
+      <canvas id="canvas" width="900" height="640"></canvas>
+      <div id="cursorPos" class="muted small"></div>
+
+      <div class="lead-panel">
+        <h2>铅条下料清单（草稿实时）</h2>
+        <div id="leadList"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 发布视图 ============ -->
+  <main id="viewPublished" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>历史发布版</h2>
+        <label>图纸
+          <select id="pubDesignSelect"></select>
+        </label>
+        <label>版本
+          <select id="pubVersionSelect"></select>
+        </label>
+        <div id="pubMeta" class="muted"></div>
+        <div class="hint">发布版为不可变快照，仅供查阅。</div>
+      </section>
+      <section>
+        <h2>玻璃片明细</h2>
+        <ul id="pubPieceList"></ul>
+      </section>
+      <section>
+        <h2>铅条下料清单</h2>
+        <div id="pubLeadList"></div>
+      </section>
+    </aside>
+    <section class="canvas-wrap">
+      <canvas id="pubCanvas" width="900" height="640"></canvas>
+    </section>
+  </main>
+
+  <!-- ============ 跨图复用视图 ============ -->
+  <main id="viewReuse" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 选择来源发布版与拼片</h2>
+        <label>来源图纸
+          <select id="reuseSrcDesign"></select>
+        </label>
+        <label>已发布版本
+          <select id="reuseSrcVersion"></select>
+        </label>
+        <div class="hint">至少勾选一片且不重复；颜色来自不可变发布快照，导入后保留原色。</div>
+        <ul id="reusePieceList" class="reuse-pieces"></ul>
+      </section>
+
+      <section>
+        <h2>② 目标草稿与定位</h2>
+        <label>目标图纸草稿
+          <select id="reuseTargetDesign"></select>
+        </label>
+        <div class="form-row">
+          <label>旋转（绕来源图纸坐标原点，逆时针）
+            <select id="reuseRotation">
+              <option value="0">0°</option>
+              <option value="90">90°</option>
+              <option value="180">180°</option>
+              <option value="270">270°</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row two">
+          <label>x 平移 dx (mm)<input id="reuseDx" type="number" step="1" value="0"></label>
+          <label>y 平移 dy (mm)<input id="reuseDy" type="number" step="1" value="0"></label>
+        </div>
+        <div class="btn-row">
+          <button id="btnReusePreview" class="primary big">定位预览（不写入）</button>
+        </div>
+        <div id="reuseMsg" class="hint">拼片先绕来源图纸的坐标原点旋转 0/90/180/270°，再做整数毫米平移。预览只显示转换后的轮廓、原色、目标位置与草稿覆盖状态；确认时整批赋予目标图纸新编号。</div>
+      </section>
+
+      <section id="reusePendingSection" hidden>
+        <h2>③ 待确认预览</h2>
+        <div id="reusePendingList"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="reuseBanner" class="banner" hidden></div>
+      <canvas id="reuseCanvas" width="900" height="640"></canvas>
+      <div class="lead-panel">
+        <h2>预览结果</h2>
+        <div id="reuseResult" class="hint">左侧选择来源图纸、发布版本与至少一片拼片，选择目标草稿并设置旋转/平移后点击“定位预览”。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 版本核对视图 ============ -->
+  <main id="viewDiff" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>两版铅条核对</h2>
+        <label>图纸
+          <select id="diffDesignSelect"></select>
+        </label>
+        <div class="form-row two">
+          <label>较早版
+            <select id="diffFromSelect"></select>
+          </label>
+          <label>较晚版
+            <select id="diffToSelect"></select>
+          </label>
+        </div>
+        <div class="btn-row">
+          <button id="btnDiffRun" class="primary big">核对铅条下料变化</button>
+        </div>
+        <div id="diffMsg" class="hint">选择同一图纸的两个已发布版本。只比较空间位置：共线重叠为沿用，较早版独有为取消，较晚版独有为新增；反向记录、清单顺序、T 接分段不产生差异。核对为只读。</div>
+      </section>
+
+      <section>
+        <h2>合计（内部公共边 + 四框）</h2>
+        <div id="diffSummary"></div>
+      </section>
+
+      <section>
+        <h2>内部公共边明细</h2>
+        <div id="diffInternal"></div>
+      </section>
+
+      <section>
+        <h2>四根外框明细</h2>
+        <div id="diffFrame"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="diffBanner" class="banner" hidden></div>
+      <canvas id="diffCanvas" width="900" height="640"></canvas>
+      <div class="lead-panel">
+        <h2 id="diffLegendTitle">铅条变化图</h2>
+        <div class="diff-legend">
+          <span><i class="lg kept"></i>沿用（两版共线重叠）</span>
+          <span><i class="lg removed"></i>取消（较早版独有）</span>
+          <span><i class="lg added"></i>新增（较晚版独有）</span>
+        </div>
+        <div id="diffCanvasHint" class="hint">选择两个发布版后点击“核对”，结果同时在图与表中展示。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 分张打印视图 ============ -->
+  <main id="viewPrint" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>1:1 分张打印</h2>
+        <label>图纸
+          <select id="printDesignSelect"></select>
+        </label>
+        <label>已发布版本
+          <select id="printVersionSelect"></select>
+        </label>
+        <div class="form-row two">
+          <label>纸张宽 (mm)<input id="printPaperW" type="number" min="1" step="1" value="210"></label>
+          <label>纸张高 (mm)<input id="printPaperH" type="number" min="1" step="1" value="297"></label>
+        </div>
+        <div class="form-row two">
+          <label>四边留白 (mm)<input id="printMargin" type="number" min="0" step="1" value="10"></label>
+          <label>相邻页重叠 (mm)<input id="printOverlap" type="number" min="1" step="1" value="15"></label>
+        </div>
+        <div class="btn-row">
+          <button id="btnPrintPreview" class="primary big">生成拼接预览</button>
+        </div>
+        <div id="printMsg" class="hint">按实物 1:1 分张：纸张尺寸与重叠均为正整数毫米，留白可为 0 但必须小于纸张半边长；总页数最多 200。预览与下载均为只读，不影响草稿、发布版、生产计划与库存。</div>
+      </section>
+
+      <section id="printSummarySection" hidden>
+        <h2>分页结果</h2>
+        <div id="printSummary"></div>
+        <div class="btn-row">
+          <button id="btnPrintDownloadAll">逐页下载全部 SVG</button>
+        </div>
+        <div class="hint">浏览器将逐页另存 SVG；每页文件内尺寸以 mm 标定，打印时务必选择“实际大小 / 100%”，不要勾选“适应页面”。</div>
+      </section>
+
+      <section id="printPageListSection" hidden>
+        <h2>逐页明细 / 下载</h2>
+        <ul id="printPageList"></ul>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="printBanner" class="banner" hidden></div>
+      <canvas id="printCanvas" width="900" height="640"></canvas>
+      <div class="lead-panel">
+        <h2>拼接示意（行自下而上、列自左而右）</h2>
+        <div id="printCanvasHint" class="hint">选择已发布版本与纸张参数后点击“生成拼接预览”：蓝框为每页覆盖的图纸范围，绿色虚线为拼接边，红色十字为跨页对位标记；点击列表可高亮单页。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 生产视图 ============ -->
+  <main id="viewProduction" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 原材库存</h2>
+        <div id="matList"></div>
+        <details>
+          <summary>登记原材规格与库存根数</summary>
+          <div class="form-row">
+            <label>规格名称<input id="matName" type="text" placeholder="如：6m 通用铅条" maxlength="80"></label>
+          </div>
+          <div class="form-row two">
+            <label>定尺 (mm)<input id="matLength" type="number" min="0.01" step="0.01" value="6000"></label>
+            <label>库存根数<input id="matStock" type="number" min="0" step="1" value="10"></label>
+          </div>
+          <button id="btnMatAdd" class="primary">登记</button>
+          <div id="matMsg" class="hint"></div>
+        </details>
+      </section>
+
+      <section>
+        <h2>② 制作生产计划（草稿）</h2>
+        <div class="form-row">
+          <label>计划名称<input id="planName" type="text" placeholder="留空自动命名" maxlength="80"></label>
+        </div>
+        <label>图纸
+          <select id="planDesignSelect"></select>
+        </label>
+        <label>发布版本
+          <select id="planVersionSelect"></select>
+        </label>
+        <label>原材规格
+          <select id="planMaterialSelect"></select>
+        </label>
+        <div class="form-row two">
+          <label>件数（正数）<input id="planCopies" type="number" min="1" step="1" value="1"></label>
+          <label>每刀损耗 (mm)<input id="planKerf" type="number" min="0" step="0.01" value="0.5"></label>
+        </div>
+        <div class="btn-row">
+          <button id="btnPlanPreview" class="primary big">排产预览（不占库存）</button>
+        </div>
+        <div id="planMsg" class="hint"></div>
+      </section>
+
+      <section>
+        <h2>③ 计划列表</h2>
+        <div id="planList"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="prodBanner" class="banner" hidden></div>
+      <div id="previewBox" class="lead-panel">
+        <h2>排产预览 / 计划详情</h2>
+        <div id="previewContent" class="hint">在左侧选择发布版本、件数、原材规格与每刀损耗，点击“排产预览”。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 玻璃裁片视图 ============ -->
+  <main id="viewCutting" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 彩色原片库存（每色一种规格）</h2>
+        <div id="glassList"></div>
+        <details>
+          <summary>登记颜色原片规格与库存张数</summary>
+          <div class="form-row">
+            <label>颜色 <input id="glassColor" type="color" value="#4c9aff"></label>
+          </div>
+          <div class="form-row two">
+            <label>宽 (mm)<input id="glassWidth" type="number" min="1" max="2000" step="1" value="600"></label>
+            <label>高 (mm)<input id="glassHeight" type="number" min="1" max="2000" step="1" value="400"></label>
+          </div>
+          <div class="form-row">
+            <label>库存张数<input id="glassStock" type="number" min="0" step="1" value="5"></label>
+          </div>
+          <button id="btnGlassAdd" class="primary">登记</button>
+          <div id="glassMsg" class="hint"></div>
+        </details>
+      </section>
+
+      <section>
+        <h2>② 裁片排样（按发布快照颜色）</h2>
+        <div class="form-row">
+          <label>订单名称<input id="cutName" type="text" placeholder="留空自动命名" maxlength="80"></label>
+        </div>
+        <label>图纸
+          <select id="cutDesignSelect"></select>
+        </label>
+        <label>发布版本
+          <select id="cutVersionSelect"></select>
+        </label>
+        <div class="form-row two">
+          <label>制作件数<input id="cutCopies" type="number" min="1" step="1" value="1"></label>
+          <label>片间最小间距 (mm)<input id="cutGap" type="number" min="0" max="50" step="1" value="0"></label>
+        </div>
+        <div class="btn-row">
+          <button id="btnCutPreview" class="primary big">排样预览（不占库存）</button>
+        </div>
+        <div id="cutMsg" class="hint">每片仅可平移或旋转 90°/180°/270°，不得镜像、越板或与同板片轮廓净距不足；总裁片数最多 60 张。相同版本与参数布局一致。</div>
+      </section>
+
+      <section>
+        <h2>③ 裁片订单</h2>
+        <div id="cutOrderList"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="cutBanner" class="banner" hidden></div>
+      <div id="cutPreviewBox" class="lead-panel">
+        <h2>排样预览 / 订单详情</h2>
+        <div id="cutPreviewContent" class="hint">在左侧登记各颜色原片，选择发布版本、制作件数与片间最小间距，点击“排样预览”。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 整套备料视图 ============ -->
+  <main id="viewCombo" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 一次备齐铅条 + 玻璃</h2>
+        <div class="form-row">
+          <label>整套单名称<input id="comboName" type="text" placeholder="留空自动命名" maxlength="80"></label>
+        </div>
+        <label>图纸
+          <select id="comboDesignSelect"></select>
+        </label>
+        <label>发布版本
+          <select id="comboVersionSelect"></select>
+        </label>
+        <label>铅条原材
+          <select id="comboMaterialSelect"></select>
+        </label>
+        <div class="form-row two">
+          <label>件数<input id="comboCopies" type="number" min="1" step="1" value="1"></label>
+          <label>每刀损耗 (mm)<input id="comboKerf" type="number" min="0" step="0.01" value="0.5"></label>
+        </div>
+        <div class="form-row">
+          <label>玻璃片间最小间距 (mm)<input id="comboGap" type="number" min="0" max="50" step="1" value="0"></label>
+        </div>
+        <div class="btn-row">
+          <button id="btnComboPreview" class="primary big">整套预览（不占库存）</button>
+        </div>
+        <div id="comboMsg" class="hint">预览沿用现有切段（FFD+刀损）与玻璃排样规则，列出铅条根数、各色原片张数、可用量与缺口，但不占库存。确认时在同一事务内核验并预留两类库存，任一不足全部保持原状。</div>
+      </section>
+
+      <section>
+        <h2>② 整套用料单</h2>
+        <div id="comboList"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="comboBanner" class="banner" hidden></div>
+      <div id="comboPreviewBox" class="lead-panel">
+        <h2>整套预览 / 整套单详情</h2>
+        <div id="comboPreviewContent" class="hint">在左侧选择发布版本、件数、铅条原材与刀损、玻璃片间距，点击“整套预览”。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 库存盘点视图 ============ -->
+  <main id="viewStocktake" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 新建盘点单</h2>
+        <div class="form-row">
+          <label>盘点单名称<input id="stName" type="text" placeholder="留空自动命名" maxlength="80"></label>
+        </div>
+        <div class="hint">勾选要盘点的铅条原材与玻璃原片规格，逐项录入实盘总数（非负整数，同单规格不重复）；可只盘其中几项。</div>
+        <h3>铅条原材</h3>
+        <div id="stLeadList"></div>
+        <h3>玻璃原片</h3>
+        <div id="stGlassList"></div>
+        <div class="btn-row">
+          <button id="btnStPreview" class="primary big">预览盘点（不改库存）</button>
+        </div>
+        <div id="stMsg" class="hint">预览会保存各项当时的系统库存、已确认预留、差异与实盘后可用量；确认时在同一事务内重核，任一项已变化或实盘数低于当前预留则整单不生效。</div>
+      </section>
+
+      <section>
+        <h2>② 盘点单</h2>
+        <div id="stList"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="stBanner" class="banner" hidden></div>
+      <div class="lead-panel">
+        <h2>盘点预览 / 盘点单详情</h2>
+        <div id="stDetail" class="hint">在左侧勾选规格并录入实盘数，点击“预览盘点”。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 领料视图 ============ -->
+  <main id="viewIssue" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 按单领料</h2>
+        <div class="hint">按已确认的独立铅条计划、独立裁片订单或整套用料单分次领料。数量为非负整数且至少一项大于 0，不能超过该单尚未领出的预留；整套单可只领其中一类。同一领料号重试返回原记录，内容不同报冲突。</div>
+        <label>领料来源
+          <select id="issueSourceType">
+            <option value="lead_plan">独立铅条计划</option>
+            <option value="cut_order">独立裁片订单</option>
+            <option value="combo">整套用料单</option>
+          </select>
+        </label>
+        <label>选择单据
+          <select id="issueSourceSelect"></select>
+        </label>
+        <label>唯一领料号
+          <input id="issueNo" type="text" placeholder="如 LL-20261004-001" maxlength="80">
+        </label>
+        <div id="issueLeadBox" class="form-row">
+          <label>本次铅条根数<input id="issueLeadBars" type="number" min="0" step="1" value="0"></label>
+        </div>
+        <div id="issueGlassBox">
+          <div class="hint">各色本次领取原片张数（0 表示本次不领该色）</div>
+          <div id="issueGlassInputs"></div>
+        </div>
+        <div class="btn-row">
+          <button id="btnIssueSubmit" class="primary big">确认领料（同事务扣减库存）</button>
+          <button id="btnIssueNewNo">生成领料号</button>
+        </div>
+        <div id="issueMsg" class="hint"></div>
+      </section>
+
+      <section>
+        <h2>② 领料历史</h2>
+        <label>筛选
+          <select id="issueFilter">
+            <option value="">全部</option>
+            <option value="lead_plan">独立铅条计划</option>
+            <option value="cut_order">独立裁片订单</option>
+            <option value="combo">整套用料单</option>
+          </select>
+        </label>
+        <div id="issueHistory"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="issueBanner" class="banner" hidden></div>
+      <div class="lead-panel">
+        <h2>单据剩余预留 / 领料详情</h2>
+        <div id="issueDetail" class="hint">在左侧选择已确认单据，查看各规格尚未领出的预留量并分次领料。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 瑕疵隔离视图 ============ -->
+  <main id="viewQuarantine" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 玻璃原片隔离 / 解除</h2>
+        <div class="hint">发现原片瑕疵时，勾选一种或多种<b>已登记颜色</b>，提交隔离（hold）或解除隔离（release）的<b>正整数张数</b>、<b>非空原因</b>与<b>唯一操作号</b>。实物库存不因隔离变化；隔离只从新裁片订单与整套单的可用量中扣除。隔离只能划出当前<b>未预留且未隔离</b>的实物，解除不得超过隔离余额；未知颜色、非法数量或任一颜色余额不足时整次不生效。</div>
+        <label>操作
+          <select id="qAction">
+            <option value="hold">隔离（瑕疵封存）</option>
+            <option value="release">解除隔离（恢复可用）</option>
+          </select>
+        </label>
+        <label>唯一操作号
+          <input id="qOpNo" type="text" placeholder="如 Q-20261005-001" maxlength="80">
+        </label>
+        <label>原因（必填，≤200 字）
+          <textarea id="qReason" rows="2" placeholder="如：边角气泡、结石；解除原因：复检合格"></textarea>
+        </label>
+        <h3>选择颜色与本次张数</h3>
+        <div id="qColorList"></div>
+        <div class="btn-row">
+          <button id="btnQSubmit" class="primary big">提交（原子生效）</button>
+          <button id="btnQNewNo">生成操作号</button>
+        </div>
+        <div id="qMsg" class="hint">同一操作号同内容重试返回原记录，内容不同报冲突；已提交记录不可变、不可取消。</div>
+      </section>
+
+      <section>
+        <h2>② 隔离历史</h2>
+        <label>筛选颜色
+          <select id="qFilterSpec"><option value="">全部颜色</option></select>
+        </label>
+        <div id="qHistory"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="qBanner" class="banner" hidden></div>
+      <div class="lead-panel">
+        <h2>各色隔离余额与实际可用量</h2>
+        <div id="qBalances" class="hint">进入本页自动加载已登记颜色原片。</div>
+      </div>
+      <div class="lead-panel">
+        <h2>本次操作详情</h2>
+        <div id="qDetail" class="hint">在左侧选择颜色、张数与原因后提交，结果显示在这里。</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 库存台账视图 ============ -->
+  <main id="viewLedger" class="view" hidden>
+    <aside class="panel">
+      <section>
+        <h2>① 选择规格与时间范围</h2>
+        <label>材料类型
+          <select id="ledgerType">
+            <option value="lead">铅条原材</option>
+            <option value="glass">玻璃原片</option>
+          </select>
+        </label>
+        <label>规格
+          <select id="ledgerSpec"></select>
+        </label>
+        <label>起始时间（留空不限）
+          <input id="ledgerFrom" type="datetime-local" step="60">
+        </label>
+        <label>结束时间（留空不限）
+          <input id="ledgerTo" type="datetime-local" step="60">
+        </label>
+        <div class="btn-row">
+          <button id="btnLedgerQuery" class="primary big">查询台账</button>
+        </div>
+        <div id="ledgerMsg" class="hint">按“材料类型 + 规格 + 时间范围”逐笔追溯：发生时间、业务来源、实物库存与净预留的增减及笔后余额。首次启用时按各规格当前库存与净预留建立基线（旧业务不倒推）；新登记规格从登记流水起账，此后逐笔可顺序核对至当前余额。</div>
+      </section>
+
+      <section id="ledgerCurrentSection" hidden>
+        <h2>② 当前结存</h2>
+        <div id="ledgerCurrent"></div>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="ledgerBanner" class="banner" hidden></div>
+      <div class="lead-panel">
+        <h2>台账流水</h2>
+        <div id="ledgerTable" class="hint">在左侧选择材料类型、规格与时间范围后点击“查询台账”。</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

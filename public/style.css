@@ -1,0 +1,335 @@
+:root {
+  --bg: #f4f1ea;
+  --panel: #ffffff;
+  --ink: #2b2b2b;
+  --muted: #7a746a;
+  --line: #d8d2c4;
+  --primary: #3a5a8c;
+  --primary-hover: #2f4a75;
+  --danger: #c0392b;
+  --ok: #2e7d4f;
+  --warn-bg: #fff3cd;
+  --danger-bg: #fde7e4;
+  --ok-bg: #e3f3e8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 20px;
+  background: #2f3e4d;
+  color: #fff;
+}
+header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+
+.tabs { display: flex; gap: 8px; }
+.tab {
+  border: none; background: transparent; color: #cfd6de;
+  padding: 8px 16px; font-size: 15px; cursor: pointer; border-radius: 6px;
+}
+.tab.active { background: #4a6178; color: #fff; }
+.tab:hover { color: #fff; }
+
+.view {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 20px;
+  min-height: calc(100vh - 56px);
+}
+
+.panel {
+  width: 320px;
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.panel section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+}
+.panel h2 { font-size: 14px; margin: 0 0 10px; color: var(--primary); }
+
+label { display: block; font-size: 13px; margin-bottom: 8px; color: #444; }
+input, select, textarea {
+  width: 100%;
+  padding: 6px 8px;
+  margin-top: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+}
+input[type="color"] { height: 34px; padding: 2px; cursor: pointer; }
+textarea { resize: vertical; font-family: ui-monospace, monospace; }
+
+.form-row.two { display: flex; gap: 8px; }
+.form-row.two label { flex: 1; }
+
+button {
+  border: 1px solid var(--line);
+  background: #f7f5f0;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+button:hover { background: #ece8de; }
+button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+button.primary:hover { background: var(--primary-hover); }
+button.big { width: 100%; padding: 10px; font-size: 15px; }
+button.danger { color: var(--danger); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 6px 0; }
+.muted { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.small { font-size: 11px; }
+code { background: #efece5; padding: 0 4px; border-radius: 3px; font-size: 12px; }
+
+details { margin-top: 10px; }
+summary { cursor: pointer; font-size: 13px; color: var(--primary); margin-bottom: 8px; }
+
+.canvas-wrap { flex: 1; min-width: 0; position: relative; }
+canvas {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: block;
+  max-width: 100%;
+  cursor: crosshair;
+}
+
+.banner {
+  position: absolute;
+  top: 10px; left: 10px; right: 10px;
+  z-index: 5;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: 0 2px 10px rgba(0,0,0,.15);
+}
+.banner.error { background: var(--danger-bg); border: 1px solid #e6a89f; color: #7a1f14; }
+.banner.success { background: var(--ok-bg); border: 1px solid #9cc9ab; color: #1e5e36; }
+
+.lead-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 14px;
+}
+.lead-panel h2 { font-size: 14px; margin: 0 0 8px; color: var(--primary); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.totals td { font-weight: 600; border-top: 2px solid #999; }
+
+#pieceList, #pubPieceList { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
+#pieceList li, #pubPieceList li {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 2px; font-size: 13px; border-bottom: 1px solid #eee;
+}
+.swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); flex: 0 0 18px; }
+.piece-meta { flex: 1; }
+.piece-meta .no { font-weight: 600; }
+.piece-meta .area { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.icon-btn {
+  border: none; background: none; cursor: pointer; font-size: 14px;
+  padding: 2px 6px; border-radius: 4px;
+}
+.icon-btn:hover { background: #eee; }
+.color-pick { width: 26px; height: 22px; padding: 0; border: none; }
+
+#coverageStatus .badge {
+  display: inline-block; padding: 3px 10px; border-radius: 12px;
+  font-size: 12px; margin-bottom: 6px;
+}
+.badge.ok { background: var(--ok-bg); color: var(--ok); }
+.badge.bad { background: var(--danger-bg); color: var(--danger); }
+.gap-info { font-size: 12px; color: #8a5a00; line-height: 1.6; }
+
+.pub-link { color: var(--primary); }
+
+/* ---------- 铅条生产 ---------- */
+.plan-head { margin-bottom: 8px; line-height: 1.7; }
+.stock-badge {
+  display: inline-block; padding: 6px 12px; border-radius: 8px;
+  font-size: 13px; margin: 6px 0 10px;
+}
+.stock-badge.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid #9cc9ab; }
+.stock-badge.bad { background: var(--danger-bg); color: var(--danger); border: 1px solid #e6a89f; }
+.stock-badge.cancel { background: #eee; color: #777; border: 1px solid #ccc; }
+
+.bars { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.bar-card {
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fcfbf8;
+}
+.bar-title { font-size: 13px; margin-bottom: 6px; }
+.track {
+  position: relative; height: 20px; background: #eee; border-radius: 4px;
+  overflow: hidden; margin: 6px 0 8px; border: 1px solid var(--line);
+}
+.track .seg { position: absolute; top: 0; bottom: 0; border-right: 1px solid rgba(255,255,255,.7); }
+.track .rem { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg,#e2ddd2,#e2ddd2 5px,#d5cfc1 5px,#d5cfc1 10px); }
+
+.plan-item {
+  padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px;
+  margin-bottom: 6px; cursor: pointer; font-size: 13px; line-height: 1.6;
+}
+.plan-item:hover { background: #f2efe7; }
+.plan-item.active { border-color: var(--primary); background: #eef3fa; }
+.stock-edit { display: inline-block; }
+
+#viewProduction .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+#viewProduction .badge.ok { background: var(--ok-bg); color: var(--ok); }
+#viewProduction .badge.bad { background: var(--danger-bg); color: var(--danger); }
+
+/* ---------- 版本核对 ---------- */
+.diff-sum { margin: 6px 0 8px; }
+.diff-tag {
+  display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; color: #fff;
+}
+.diff-tag.kept { background: #1565c0; }
+.diff-tag.removed { background: #d32f2f; }
+.diff-tag.added { background: #2e7d4f; }
+td.kept.num, th.kept.num { color: #1565c0; }
+td.removed.num, th.removed.num { color: #d32f2f; }
+td.added.num, th.added.num { color: #2e7d4f; }
+
+.diff-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin: 4px 0; }
+.diff-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.diff-legend .lg { width: 22px; height: 5px; border-radius: 3px; display: inline-block; }
+.diff-legend .lg.kept { background: #1565c0; }
+.diff-legend .lg.removed {
+  background: repeating-linear-gradient(45deg, #d32f2f, #d32f2f 4px, #fff 4px, #fff 8px);
+  border: 1px solid #d32f2f;
+}
+.diff-legend .lg.added { background: #2e7d4f; }
+
+/* 分张打印逐页列表 */
+#printPageList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.print-page-item {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 64px 8px 10px;
+  background: #fff;
+  cursor: pointer;
+}
+.print-page-item:hover { background: #f2efe7; }
+.print-page-item.active { border-color: var(--primary); background: #eef3fa; }
+.print-page-item .icon-btn { position: absolute; right: 8px; top: 8px; }
+
+/* ============ 玻璃裁片 ============ */
+.color-chip {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.cut-color-summary { margin: 10px 0; }
+.cut-sheets { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+.cut-sheets h3 { margin: 6px 0 2px; font-size: 14px; }
+.cut-sheet-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.cut-sheet-card .bar-title { font-weight: 600; margin-bottom: 6px; }
+.cut-sheet-svg {
+  display: block;
+  margin: 6px 0 8px;
+  border: 1px dashed #ccc;
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* ============ 裁片订单换单 ============ */
+.badge.replace { background: #e7f0ff; color: #1c5dc4; }
+.stock-badge.replace { background: #e7f0ff; color: #1c5dc4; border: 1px solid #9db8e8; }
+.ok-text { color: var(--ok); font-weight: 600; }
+.neg-text { color: var(--danger); font-weight: 600; }
+.replace-panel {
+  margin-top: 14px;
+  border: 1px dashed #9db8e8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f6f9ff;
+}
+.replace-panel > summary { cursor: pointer; margin-bottom: 6px; }
+.replace-panel label { display: block; margin: 6px 0; }
+.replace-info {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #e7f0ff;
+  color: #1c5dc4;
+  font-size: 13px;
+}
+.link-btn {
+  border: none;
+  background: none;
+  color: #1c5dc4;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  padding: 0 2px;
+}
+
+/* ============ 跨图复用 ============ */
+.reuse-pieces { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.reuse-pieces li {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 2px; font-size: 13px; border-bottom: 1px solid #eee;
+}
+.reuse-pieces label { display: flex; align-items: center; gap: 8px; margin: 0; width: 100%; cursor: pointer; }
+.reuse-pieces input[type="checkbox"] { width: auto; margin: 0; }
+.reuse-item {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  margin-bottom: 6px; font-size: 13px; line-height: 1.6; background: #fcfbf8;
+}
+.reuse-item .btn-row { margin: 6px 0 0; }
+.reuse-imported { stroke: #1565c0; }
+
+/* ============ 领料 ============ */
+.issue-records {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.issue-records li {
+  padding: 8px 10px;
+  border: 1px solid #e3e3e8;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: #fff;
+  font-size: 13px;
+}
+.issue-records code {
+  background: #f2f2f5;
+  padding: 1px 6px;
+  border-radius: 4px;
+}

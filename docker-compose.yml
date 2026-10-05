@@ -1,0 +1,17 @@
+services:
+  studio:
+    build: .
+    image: stained-glass-studio:latest
+    container_name: stained-glass-studio
+    ports:
+      # 宿主机端口:容器端口。浏览器访问 http://localhost:3000
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DB_PATH: /data/studio.db
+    volumes:
+      - studio-data:/data
+    restart: unless-stopped
+
+volumes:
+  studio-data:
