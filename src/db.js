@@ -11,6 +11,9 @@ function init(dbPath) {
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  // 并发写事务（手工新增 / 整批确认可能同时发生）在锁竞争时等待而非立即报 SQLITE_BUSY，
+  // 由 BEGIN IMMEDIATE 串行化，片号分配因此不会撞号。
+  db.pragma('busy_timeout = 5000');
 
   db.exec(`
     -- 一张图纸（窗框固定）；草稿内容在 pieces 表中就地编辑
@@ -32,6 +35,15 @@ function init(dbPath) {
       polygon     TEXT    NOT NULL,           -- JSON [[x,y],...] 整数毫米
       created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
       UNIQUE (design_id, piece_no)
+    );
+
+    -- 每张图纸独立的片号高水位：next_no = 下一个待分片号。
+    -- 两条写入路径（手工新增 / 整批复用确认）都在 BEGIN IMMEDIATE 写事务内
+    -- 原子 UPDATE 取号，删除拼片不回退，因此同图纸新片号始终高于此前已分配片号，
+    -- 删除当前最大片号、删光全部草稿、服务重启后旧片号也不会复现。
+    CREATE TABLE IF NOT EXISTS piece_sequences (
+      design_id  INTEGER PRIMARY KEY REFERENCES designs(id) ON DELETE CASCADE,
+      next_no    INTEGER NOT NULL CHECK (next_no >= 1)
     );
 
     -- 发布版：不可变快照，版本号在一张图纸内递增
@@ -312,6 +324,9 @@ function init(dbPath) {
   // 早期领料表 issue_no 带 UNIQUE（一次领料多行需同号）；检测到旧定义则重建。
   migrateStockIssues();
 
+  // 旧库升级：为每张图纸补建片号高水位（见 migratePieceSequences 注释）。
+  migratePieceSequences();
+
   // 库存台账：首次启用（表不存在）时建表并为既有规格写基线行；此后由业务同事务写入。
   migrateLedger();
 
@@ -574,10 +589,18 @@ function getDb() {
 // ---------- designs ----------
 
 function createDesign({ name, width, height }) {
-  const info = getDb()
-    .prepare('INSERT INTO designs (name, width_mm, height_mm) VALUES (?, ?, ?)')
-    .run(name, width, height);
-  return getDesign(info.lastInsertRowid);
+  const d = getDb();
+  const txn = d.transaction(() => {
+    const info = d
+      .prepare('INSERT INTO designs (name, width_mm, height_mm) VALUES (?, ?, ?)')
+      .run(name, width, height);
+    // 新图纸片号从 1 起，不同图纸各自独立计数
+    d.prepare('INSERT INTO piece_sequences (design_id, next_no) VALUES (?, 1)')
+      .run(info.lastInsertRowid);
+    return info.lastInsertRowid;
+  });
+  const id = txn.immediate();
+  return getDesign(id);
 }
 
 function getDesign(id) {
@@ -619,20 +642,69 @@ function getPiece(designId, pieceId) {
   return row ? rowToPiece(row) : null;
 }
 
-function nextPieceNo(designId) {
-  const row = getDb()
-    .prepare('SELECT COALESCE(MAX(piece_no), 0) + 1 AS n FROM pieces WHERE design_id = ?')
-    .get(designId);
-  return row.n;
+// 片号高水位（每张图纸独立、永不复用）：
+//   piece_sequences.next_no 是下一个待分片号；两条写入路径都在 BEGIN IMMEDIATE
+//   写事务内经 allocatePieceNos 原子取号，删除拼片不回退高水位。
+// 仅能从现存草稿与已发布快照追溯到的历史片号会影响起点；无法追溯的历史删除不回补。
+
+// 一张图纸所有已发布快照中可查到的最大片号（无发布版返回 0）。
+function maxPublishedPieceNo(designId) {
+  let max = 0;
+  const rows = getDb()
+    .prepare('SELECT snapshot FROM publications WHERE design_id = ? ORDER BY version')
+    .all(designId);
+  for (const row of rows) {
+    let snap;
+    try { snap = JSON.parse(row.snapshot); } catch { continue; }
+    for (const p of Array.isArray(snap.pieces) ? snap.pieces : []) {
+      const n = Number(p && p.pieceNo);
+      if (Number.isInteger(n) && n > max) max = n;
+    }
+  }
+  return max;
+}
+
+// 旧库/缺失高水位时的最低起点：现存草稿最大片号 与 已发布快照可查最大片号 取大值 +1。
+function pieceNoFloor(designId) {
+  const d = getDb();
+  const draftMax = d.prepare('SELECT COALESCE(MAX(piece_no), 0) AS n FROM pieces WHERE design_id = ?')
+    .get(designId).n;
+  return Math.max(draftMax, maxPublishedPieceNo(designId)) + 1;
+}
+
+// 取缺失图纸的高水位行（幂等）。必须在写事务内调用，避免并发各建一行。
+function ensurePieceSequence(designId) {
+  const d = getDb();
+  if (!d.prepare('SELECT 1 FROM piece_sequences WHERE design_id = ?').get(designId)) {
+    d.prepare('INSERT INTO piece_sequences (design_id, next_no) VALUES (?, ?)')
+      .run(designId, pieceNoFloor(designId));
+  }
+}
+
+// 在写事务内预留连续的 count 个片号，返回首个片号 [first, first+count)。
+// UPDATE 原子推进高水位：失败回滚则不消耗片号；并发写事务在 BEGIN IMMEDIATE 下串行。
+function allocatePieceNos(designId, count = 1) {
+  const d = getDb();
+  ensurePieceSequence(designId);
+  const first = d.prepare('SELECT next_no AS n FROM piece_sequences WHERE design_id = ?')
+    .get(designId).n;
+  d.prepare('UPDATE piece_sequences SET next_no = ? WHERE design_id = ?')
+    .run(first + count, designId);
+  return first;
 }
 
 function addPiece(designId, { color, polygon }) {
-  const pieceNo = nextPieceNo(designId);
-  const info = getDb()
-    .prepare('INSERT INTO pieces (design_id, piece_no, color, polygon) VALUES (?, ?, ?, ?)')
-    .run(designId, pieceNo, color, JSON.stringify(polygon));
-  touchDesign(designId);
-  return getPiece(designId, info.lastInsertRowid);
+  const d = getDb();
+  const txn = d.transaction(() => {
+    const pieceNo = allocatePieceNos(designId, 1);
+    const info = d
+      .prepare('INSERT INTO pieces (design_id, piece_no, color, polygon) VALUES (?, ?, ?, ?)')
+      .run(designId, pieceNo, color, JSON.stringify(polygon));
+    touchDesign(designId);
+    return info.lastInsertRowid;
+  });
+  const pieceId = txn.immediate();
+  return getPiece(designId, pieceId);
 }
 
 function updatePiece(designId, pieceId, { color, polygon }) {
@@ -2666,9 +2738,10 @@ function confirmPieceImport(id, fns = {}) {
       }
     }
 
-    // 整批插入：顺序沿用预览 items（即请求 pieceNos 顺序），编号依次递增
-    let nextNo = d.prepare('SELECT COALESCE(MAX(piece_no), 0) + 1 AS n FROM pieces WHERE design_id = ?')
-      .get(design.id).n;
+    // 整批插入：顺序沿用预览 items（即请求 pieceNos 顺序），从该图纸片号高水位
+    // 一次性预分连续编号。预分与插入在同一写事务内：其后任一语句失败整体回滚，
+    // 高水位也回滚，失败确认不消耗片号；与手工新增并发时由 BEGIN IMMEDIATE 串行，不撞号。
+    let nextNo = allocatePieceNos(design.id, items.length);
     const insertStmt = d.prepare(
       'INSERT INTO pieces (design_id, piece_no, color, polygon) VALUES (?, ?, ?, ?)');
     const confirmedPieces = [];
@@ -2693,6 +2766,21 @@ function confirmPieceImport(id, fns = {}) {
     d.exec('ROLLBACK');
     throw e;
   }
+}
+
+// ---------- 片号高水位迁移 ----------
+
+// 旧库升级（piece_sequences 建表后首次启动）：为每张图纸补建片号高水位。
+// 起点取“现存草稿最大片号”与“该图纸全部已发布快照可查最大片号”二者的较大值 +1，
+// 因此即便草稿删空、服务重启，新片号也不会与已发布快照仍可能引用的旧片号撞号；
+// 无法从现存草稿/快照追溯的历史删除记录不回补。幂等：已有高水位行不改动。
+function migratePieceSequences() {
+  const d = getDb();
+  const txn = d.transaction(() => {
+    const designs = d.prepare('SELECT id FROM designs ORDER BY id').all();
+    for (const { id } of designs) ensurePieceSequence(id);
+  });
+  txn.immediate();
 }
 
 module.exports = {

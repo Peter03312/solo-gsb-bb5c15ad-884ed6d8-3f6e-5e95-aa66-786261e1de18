@@ -6,7 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test test/geometry.test.js test/leaddiff.test.js test/cutting.test.js test/printsheet.test.js test/sheetnest.test.js test/plans.api.test.js test/diff.api.test.js test/print.api.test.js test/cutorders.api.test.js test/cutreplace.test.js test/comboorders.api.test.js test/stocktakes.api.test.js test/issues.api.test.js test/ledger.api.test.js test/quarantine.api.test.js test/importpieces.api.test.js"
+    "test": "node --test test/geometry.test.js test/leaddiff.test.js test/cutting.test.js test/printsheet.test.js test/sheetnest.test.js test/plans.api.test.js test/diff.api.test.js test/print.api.test.js test/cutorders.api.test.js test/cutreplace.test.js test/comboorders.api.test.js test/stocktakes.api.test.js test/issues.api.test.js test/ledger.api.test.js test/quarantine.api.test.js test/importpieces.api.test.js test/piecenumbering.api.test.js"
   },
   "engines": {
     "node": ">=20"
